@@ -1,5 +1,7 @@
 #include "fuse_bridge.h"
 
+#include <algorithm>
+
 #include "common.h"
 
 uid_t mount_uid;
@@ -17,11 +19,13 @@ FuseOperationsWrapper::FuseOperationsWrapper(): fuse_operations() {
   fuse_operations::readdir = readdir;
   fuse_operations::open = open;
   fuse_operations::read = read;
+  fuse_operations::rename = rename;
 }
 
 void* FuseOperationsWrapper::init(fuse_conn_info* conn, fuse_config* cfg) {
   cfg->kernel_cache = 1;
 
+  sleep(10);
   // here is the main trich
   static vfs::TDescriptor fs = vfs::PrepareFilesystemLayout();
 
@@ -121,7 +125,43 @@ int FuseOperationsWrapper::read(const char* path, char* buf, size_t size, off_t 
   return size;
 }
 
+
+FuseOperationsWrapper::PathSplit FuseOperationsWrapper::SplitPath(const std::string& path) {
+  auto found = path.find_last_of('/');
+  if (found == std::string::npos || path == "/")
+    return {"/", path};
+
+  std::string parent = (found == 0) ? "/" : path.substr(0, found);
+  std::string name = path.substr(found + 1);
+  return {parent, name};
+}
+
+
 int FuseOperationsWrapper::rename(const char* from, const char* to, unsigned int flags) {
+  // I probably need to so something with flags, but I don't care tbh
+  auto root = GetRoot();
+
+  PathSplit fromSplit = SplitPath(from);
+
+  auto fromDirectory = std::dynamic_pointer_cast<vfs::Directory>(
+      FindDescriptor(root, fromSplit.parent_path)
+    );
+  if (!fromDirectory) return -ENOENT;
+
+  PathSplit toSplit = SplitPath(to);
+  auto toDirectory = std::dynamic_pointer_cast<vfs::Directory>(
+    FindDescriptor(root, toSplit.parent_path)
+  );
+  if (!toDirectory) return -ENOENT;
+
+  auto target = FindDescriptor(root, from);
+  if (!target) return -ENOENT;
+
+
+  target->Name(toSplit.name);
+  fromDirectory->RemoveDescriptor(target);
+  toDirectory->AddDescriptors(target);
+
   return 0;
 }
 

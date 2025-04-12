@@ -68,6 +68,12 @@ protected:
   static vfs::TDescriptor FindDescriptor(const vfs::TDescriptor& root, const std::string& path);
   static vfs::TDescriptor GetRoot();
 
+  struct PathSplit {
+    std::string parent_path;
+    std::string name;
+  };
+
+  static PathSplit SplitPath(const std::string &path);
 };
 
 struct ParsedOptions {
