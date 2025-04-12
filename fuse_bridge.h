@@ -63,6 +63,7 @@ protected:
   }
 
 
+  static bool CheckPermissions(mode_t mode, mode_t access, uid_t uid, gid_t gid);
 
   static vfs::TDescriptor FindDescriptor(const vfs::TDescriptor& root, const std::string& path);
   static vfs::TDescriptor GetRoot();

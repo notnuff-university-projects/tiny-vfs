@@ -75,6 +75,20 @@ int FuseOperationsWrapper::open(const char* path, fuse_file_info* fi) {
 
   if ( !std::dynamic_pointer_cast<vfs::File>(desc) ) return -EISDIR;
 
+  uid_t uid = fuse_get_context()->uid;
+  gid_t gid = fuse_get_context()->gid;
+
+  mode_t access = desc->Access();
+
+  bool is_read = (fi->flags & O_ACCMODE) == O_RDONLY;
+  bool is_write = (fi->flags & O_ACCMODE) == O_WRONLY || (fi->flags & O_ACCMODE) == O_RDWR;
+
+  if (is_read && !CheckPermissions(R_OK, access, uid, gid))
+    return -EACCES;
+
+  if (is_write && !CheckPermissions(W_OK, access, uid, gid))
+    return -EACCES;
+
   return 0;
 }
 
@@ -91,6 +105,12 @@ int FuseOperationsWrapper::read(const char* path, char* buf, size_t size, off_t 
   auto &data = file->GetData();
   size_t len = data.size();
 
+  uid_t uid = fuse_get_context()->uid;
+  gid_t gid = fuse_get_context()->gid;
+
+  if (!CheckPermissions(R_OK, file->Access(), uid, gid))
+    return -EACCES;
+
   if (offset < len) {
     if (offset + size > len) size = len - offset;
     memcpy(buf, data.data() + offset, size);
@@ -103,6 +123,19 @@ int FuseOperationsWrapper::read(const char* path, char* buf, size_t size, off_t 
 
 int FuseOperationsWrapper::rename(const char* from, const char* to, unsigned int flags) {
   return 0;
+}
+
+bool FuseOperationsWrapper::CheckPermissions(mode_t mode, mode_t access, uid_t uid, gid_t gid) {
+  // owner
+  if (uid == mount_uid) {
+    return (access & (mode >> 6)) != 0;
+  }
+  // group
+  if (gid == mount_gid) {
+    return (access & (mode >> 3)) != 0;
+  }
+  // other
+  return (access & mode) != 0;
 }
 
 vfs::TDescriptor FuseOperationsWrapper::FindDescriptor(const vfs::TDescriptor& root, const std::string& path)  {
