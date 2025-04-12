@@ -25,7 +25,6 @@ FuseOperationsWrapper::FuseOperationsWrapper(): fuse_operations() {
 void* FuseOperationsWrapper::init(fuse_conn_info* conn, fuse_config* cfg) {
   cfg->kernel_cache = 1;
 
-  sleep(10);
   // here is the main trich
   static vfs::TDescriptor fs = vfs::PrepareFilesystemLayout();
 
