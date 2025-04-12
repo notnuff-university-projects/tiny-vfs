@@ -63,6 +63,8 @@ protected:
   }
 
 
+  static bool CheckPermissionsForDescriptor(fuse_file_info* fi, vfs::TDescriptor desc);
+  static bool CheckPermissionsForDescriptor(mode_t mode, vfs::TDescriptor desc);
   static bool CheckPermissions(mode_t mode, mode_t access, uid_t uid, gid_t gid);
 
   static vfs::TDescriptor FindDescriptor(const vfs::TDescriptor& root, const std::string& path);

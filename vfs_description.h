@@ -91,6 +91,7 @@ public:
   void AddStats(struct stat& tarStats) override;
 
   void Write(const std::vector<std::byte>& data);
+  void Write(const std::string& stringData);
 
   const std::vector<std::byte>& GetData();
 

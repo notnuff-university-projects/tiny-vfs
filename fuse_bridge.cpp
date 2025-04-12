@@ -4,9 +4,6 @@
 
 #include "common.h"
 
-uid_t mount_uid;
-gid_t mount_gid;
-
 namespace fsb {
 fuse_operations& FuseOperationsWrapper::GetOperations() {
   static fuse_operations op = FuseOperationsWrapper{};
@@ -28,9 +25,6 @@ void* FuseOperationsWrapper::init(fuse_conn_info* conn, fuse_config* cfg) {
   // here is the main trich
   static vfs::TDescriptor fs = vfs::PrepareFilesystemLayout();
 
-  auto* ctx = fuse_get_context();
-  mount_uid = ctx->uid;
-  mount_gid = ctx->gid;
 
   return &fs;
 }
@@ -53,12 +47,12 @@ int FuseOperationsWrapper::getattr(const char* path, struct stat* stbuf, fuse_fi
 }
 
 int FuseOperationsWrapper::readdir(const char* path, void* buf, fuse_fill_dir_t filler, off_t offset, fuse_file_info* fi, fuse_readdir_flags flags) {
-
   auto root = GetRoot();
   auto desc = FindDescriptor(root, path);
   auto dir = std::dynamic_pointer_cast<vfs::Directory>(desc);
 
   if (!dir) return -ENOTDIR;
+  if (!CheckPermissionsForDescriptor(fi, dir)) return -EACCES;
 
   filler(buf, ".", nullptr, 0, FUSE_FILL_DIR_PLUS);
   filler(buf, "..", nullptr, 0, FUSE_FILL_DIR_PLUS);
@@ -78,25 +72,13 @@ int FuseOperationsWrapper::open(const char* path, fuse_file_info* fi) {
 
   if ( !std::dynamic_pointer_cast<vfs::File>(desc) ) return -EISDIR;
 
-  uid_t uid = fuse_get_context()->uid;
-  gid_t gid = fuse_get_context()->gid;
+  if ( !CheckPermissionsForDescriptor(fi, desc) ) return -EACCES;
 
-  mode_t access = desc->Access();
-
-  bool is_read = (fi->flags & O_ACCMODE) == O_RDONLY;
-  bool is_write = (fi->flags & O_ACCMODE) == O_WRONLY || (fi->flags & O_ACCMODE) == O_RDWR;
-
-  if (is_read && !CheckPermissions(R_OK, access, uid, gid))
-    return -EACCES;
-
-  if (is_write && !CheckPermissions(W_OK, access, uid, gid))
-    return -EACCES;
 
   return 0;
 }
 
 int FuseOperationsWrapper::read(const char* path, char* buf, size_t size, off_t offset, fuse_file_info* fi) {
-
   auto root = GetRoot();
   auto desc = FindDescriptor(root, path);
 
@@ -108,11 +90,7 @@ int FuseOperationsWrapper::read(const char* path, char* buf, size_t size, off_t 
   auto &data = file->GetData();
   size_t len = data.size();
 
-  uid_t uid = fuse_get_context()->uid;
-  gid_t gid = fuse_get_context()->gid;
-
-  if (!CheckPermissions(R_OK, file->Access(), uid, gid))
-    return -EACCES;
+  if ( !CheckPermissionsForDescriptor(R_OK, file) ) return -EACCES;
 
   if (offset < len) {
     if (offset + size > len) size = len - offset;
@@ -162,6 +140,38 @@ int FuseOperationsWrapper::rename(const char* from, const char* to, unsigned int
   toDirectory->AddDescriptors(target);
 
   return 0;
+}
+
+bool FuseOperationsWrapper::CheckPermissionsForDescriptor(fuse_file_info* fi, vfs::TDescriptor desc) {
+
+  bool isR = (fi->flags & O_ACCMODE) == O_RDONLY;
+  bool isW = (fi->flags & O_ACCMODE) == O_WRONLY;
+  bool isRW = (fi->flags & O_ACCMODE) == O_RDWR;
+
+  mode_t mode = F_OK;
+  if (isR) mode = R_OK;
+  else if (isW) mode = W_OK;
+  else if (isRW) mode = R_OK | W_OK;
+
+  // WTF?? I don't have O_EXEC in flags, although documentation says it should be there
+  // bool isEX = (fi->flags & O_ACCMODE) == O_EXEC;
+
+  return CheckPermissionsForDescriptor(mode, desc);
+
+}
+
+bool FuseOperationsWrapper::CheckPermissionsForDescriptor(mode_t mode, vfs::TDescriptor desc) {
+  uid_t uid = fuse_get_context()->uid;
+  gid_t gid = fuse_get_context()->gid;
+
+  if (uid || gid == 0) return true;
+
+  mode_t accessFlags = desc->Access();
+
+  if (!CheckPermissions(mode, accessFlags, uid, gid)) return false;
+
+  return true;
+
 }
 
 bool FuseOperationsWrapper::CheckPermissions(mode_t mode, mode_t access, uid_t uid, gid_t gid) {
